@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>여행 사진 지도 · 대한민국 시·군·구</title>
+<meta name="description" content="대한민국 250개 시·군·구 지도에 여행 사진을 채워 넣는 앱. 사진은 이 기기 브라우저에만 저장됩니다." />
+<meta name="theme-color" content="#dff1f7" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%97%BA%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">🗺️</div>
+      <div class="brand-text">
+        <h1>여행 사진 지도</h1>
+        <p>우리 땅 곳곳에 추억을 채워요</p>
+      </div>
+    </div>
+
+    <div class="progress" id="progressBadge" title="방문한 시·군·구">
+      <span class="progress-emoji" aria-hidden="true">✈️</span>
+      <div class="progress-main">
+        <div class="progress-text">
+          <strong id="visitedCount">0</strong><span class="progress-total"> / 250</span><span class="progress-word"> 정복</span>
+        </div>
+        <div class="progress-bar"><i id="progressFill" style="width:0%"></i></div>
+      </div>
+      <span class="progress-pct" id="progressPct">0%</span>
+    </div>
+
+    <div class="topbar-actions">
+      <button class="btn soft" id="btnSample" type="button">
+        <span aria-hidden="true">✨</span><span class="btn-label">예시 채우기</span>
+      </button>
+      <div class="menu-wrap">
+        <button class="btn icon" id="btnMenu" type="button" aria-haspopup="true" aria-expanded="false" aria-label="더보기 메뉴">
+          <span aria-hidden="true">⋯</span>
+        </button>
+        <div class="menu" id="menu" role="menu" hidden>
+          <button role="menuitem" type="button" data-act="export">💾 백업 내보내기</button>
+          <button role="menuitem" type="button" data-act="import">📥 백업 불러오기</button>
+          <button role="menuitem" type="button" data-act="clear-samples">🧹 예시 데이터 지우기</button>
+          <button role="menuitem" type="button" data-act="about">ℹ️ 이 앱은</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon" aria-hidden="true">🔍</span>
+      <input id="searchInput" type="search" autocomplete="off" placeholder="지역 이름으로 찾기 (고창, 강남, 제주…)" aria-label="지역 검색" />
+      <button class="search-clear" id="searchClear" type="button" aria-label="검색어 지우기" hidden>×</button>
+      <div class="search-results" id="searchResults" role="listbox" hidden></div>
+    </div>
+    <div class="chips" id="sidoChips" role="tablist" aria-label="시·도 빠른 이동"></div>
+  </div>
+
+  <main class="stage">
+    <section class="map-wrap" id="mapWrap" aria-label="대한민국 시·군·구 지도">
+      <svg id="map" role="application" aria-label="시·군·구 지도. 지역을 누르면 여행 사진이 열립니다."></svg>
+      <div class="map-controls">
+        <button type="button" class="ctrl" id="zoomIn" aria-label="확대">+</button>
+        <button type="button" class="ctrl" id="zoomOut" aria-label="축소">−</button>
+        <button type="button" class="ctrl" id="zoomReset" aria-label="전체 보기">⌂</button>
+      </div>
+      <div class="map-hint" id="mapHint">지역을 콕 눌러 사진을 채워 보세요 <span aria-hidden="true">📸</span></div>
+      <div class="map-legend">
+        <span class="sw filled"></span>다녀온 곳
+        <span class="sw empty"></span>아직 안 가 봄
+      </div>
+      <div class="tooltip" id="tooltip" hidden></div>
+    </section>
+
+    <aside class="panel" id="panel" aria-label="지역 여행 기록" aria-hidden="true">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <header class="panel-head">
+        <div class="panel-title">
+          <h2 id="panelTitle">지역</h2>
+          <p id="panelSub">시·도</p>
+        </div>
+        <button class="btn icon ghost" id="panelClose" type="button" aria-label="닫기">×</button>
+      </header>
+      <div class="panel-body" id="panelBody"></div>
+      <footer class="panel-foot">
+        <button class="btn primary wide" id="btnAddTrip" type="button">＋ 여행 기록 / 사진 추가</button>
+      </footer>
+    </aside>
+  </main>
+
+  <footer class="site-foot">
+    <span>경계 데이터: 통계청(KOSTAT) 2018 · southkorea/southkorea-maps</span>
+    <span class="dot">·</span>
+    <span>사진은 이 브라우저(IndexedDB)에만 저장돼요</span>
+  </footer>
+</div>
+
+<!-- 여행 기록 작성 모달 -->
+<div class="overlay" id="tripOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tripModalTitle">
+    <header class="modal-head">
+      <div>
+        <h3 id="tripModalTitle">여행 기록 추가</h3>
+        <p id="tripModalSub">지역</p>
+      </div>
+      <button class="btn icon ghost" id="tripClose" type="button" aria-label="닫기">×</button>
+    </header>
+    <form id="tripForm" class="modal-body">
+      <div class="field-row">
+        <label class="field">
+          <span>날짜</span>
+          <input type="date" id="tripDate" required />
+        </label>
+        <label class="field">
+          <span>여행 제목</span>
+          <input type="text" id="tripTitle" maxlength="40" placeholder="예: 봄날의 고창" />
+        </label>
+      </div>
+      <label class="field" id="tripMemoField">
+        <span>메모</span>
+        <textarea id="tripMemo" rows="3" maxlength="500" placeholder="기억하고 싶은 순간을 적어 두세요"></textarea>
+      </label>
+      <div class="field">
+        <span>사진 <em id="photoHint">(여러 장 선택 가능)</em></span>
+        <label class="dropzone" id="dropzone">
+          <input type="file" id="photoInput" accept="image/*" multiple hidden />
+          <span class="dz-emoji" aria-hidden="true">📷</span>
+          <span class="dz-text">사진을 고르거나 여기로 끌어다 놓으세요</span>
+        </label>
+        <div class="preview-grid" id="previewGrid"></div>
+      </div>
+      <p class="form-note">사진은 자동으로 줄여서 이 기기에만 저장됩니다. 대표 사진을 누르면 지도에 그 사진이 채워져요.</p>
+    </form>
+    <footer class="modal-foot">
+      <button class="btn ghost" id="tripCancel" type="button">취소</button>
+      <button class="btn primary" id="tripSave" type="button">저장</button>
+    </footer>
+  </div>
+</div>
+
+<!-- 사진 크게 보기 -->
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lb-close" id="lbClose" type="button" aria-label="닫기">×</button>
+  <button class="lb-nav prev" id="lbPrev" type="button" aria-label="이전 사진">‹</button>
+  <figure class="lb-figure">
+    <img id="lbImg" alt="여행 사진" />
+    <figcaption id="lbCaption"></figcaption>
+  </figure>
+  <button class="lb-nav next" id="lbNext" type="button" aria-label="다음 사진">›</button>
+</div>
+
+<!-- 안내/정보 -->
+<div class="overlay" id="aboutOverlay" hidden>
+  <div class="modal small" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <header class="modal-head">
+      <h3 id="aboutTitle">이 앱은</h3>
+      <button class="btn icon ghost" id="aboutClose" type="button" aria-label="닫기">×</button>
+    </header>
+    <div class="modal-body about">
+      <p>대한민국 250개 시·군·구 지도에 다녀온 곳의 사진을 채우는 앱이에요.</p>
+      <ul>
+        <li>지역을 누르면 그 지역의 여행 사진 묶음이 열려요.</li>
+        <li>사진은 서버로 보내지 않고 <b>이 브라우저</b>에만 저장돼요(IndexedDB).</li>
+        <li>기기를 옮길 때는 <b>백업 내보내기</b>로 JSON 파일을 받아 두세요.</li>
+        <li>‘예시 채우기’는 그림으로 만든 샘플이며 언제든 지울 수 있어요.</li>
+      </ul>
+      <p class="credit">행정구역 경계: 통계청(KOSTAT) 2018 · southkorea/southkorea-maps</p>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+<input type="file" id="importInput" accept="application/json,.json" hidden />
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
