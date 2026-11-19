@@ -470,7 +470,7 @@ def desktop_flow(browser, img1, img2):
 
 
 # ── 모바일: 하단 시트 제스처·뒤로가기 ─────────────────────
-def mobile_flow(browser):
+def mobile_flow(browser, img1, img2):
     ctx, page = new_page(browser, viewport=(390, 844), touch=True, cloud_url=None)
     page.goto("http://127.0.0.1:%d%s" % (PORT, PREFIX), wait_until="networkidle")
     page.wait_for_selector("#map .region")
@@ -555,6 +555,40 @@ def mobile_flow(browser):
     check("모바일: 창을 닫아도 시트는 남아 있음", page.get_attribute("#panel", "aria-hidden") == "false",
           page.get_attribute("#panel", "aria-hidden"))
     page.screenshot(path=os.path.join(SHOTS, "25-mobile-back.png"))
+
+    # 모바일에서도 지도 대표 / 일기 대표를 따로 지정할 수 있는지
+    page.tap("#btnAddTrip")
+    page.wait_for_selector("#tripOverlay:not([hidden])")
+    page.fill("#tripDate", "2026-07-11")
+    page.fill("#tripTitle", "강릉 여름")
+    page.set_input_files("#photoInput", [img1, img2])
+    page.wait_for_selector(".preview-item")
+    page.tap("#tripSave")
+    page.wait_for_selector("#tripOverlay[hidden]", state="attached", timeout=20000)
+    page.wait_for_timeout(800)
+
+    page.tap(".trip .strip button:nth-child(1)")
+    page.wait_for_selector("#lightbox:not([hidden])")
+    page.wait_for_timeout(700)
+    sizes = page.evaluate("""() => ['lbMapCover','lbCover'].map(id => {
+      const r = document.getElementById(id).getBoundingClientRect();
+      return { id, w: Math.round(r.width), h: Math.round(r.height), visible: r.width > 0 && r.height > 0 };
+    })""")
+    check("모바일: 라이트박스에 지도/일기 대표 버튼", all(s["visible"] and s["h"] >= 32 for s in sizes), sizes)
+
+    page.tap("#lbNext")
+    page.wait_for_timeout(500)
+    page.tap("#lbMapCover")
+    wait_until(page, lambda: "지도 대표" in page.inner_text("#lbMapCover") and "✓" in page.inner_text("#lbMapCover"), 10, label="모바일 지도 대표")
+    page.wait_for_timeout(600)
+    check("모바일: 지도 대표 지정", "✓ 지도 대표" in page.inner_text("#lbMapCover"), page.inner_text("#lbMapCover"))
+    check("모바일: 지도 대표를 바꿔도 일기 대표는 그대로",
+          "일기 대표" in page.inner_text("#lbCover") and "✓" not in page.inner_text("#lbCover"), page.inner_text("#lbCover"))
+
+    page.tap("#lbCover")
+    page.wait_for_timeout(900)
+    check("모바일: 일기 대표 지정", "✓ 일기 대표" in page.inner_text("#lbCover"), page.inner_text("#lbCover"))
+    page.screenshot(path=os.path.join(SHOTS, "27-mobile-lightbox-covers.png"))
     ctx.close()
 
 
@@ -570,7 +604,7 @@ def main():
         browser = p.chromium.launch(args=["--no-sandbox"])
         try:
             desktop_flow(browser, img1, img2)
-            mobile_flow(browser)
+            mobile_flow(browser, img1, img2)
         finally:
             browser.close()
 
