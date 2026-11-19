@@ -10,3 +10,13 @@
   pip install playwright pillow && playwright install chromium
   KPM_SHOTS=./shots python3 tools/verify.py
   ```
+- `make_icons.py` — 앱 아이콘 PNG를 다시 그립니다(파스텔 지도 + 핀 + 사진 카드).
+  ```bash
+  python3 tools/make_icons.py    # icons/icon-192.png · icon-512.png · icon-maskable-512.png
+  ```
+- `verify_pwa.py` — PWA 설치 지원을 검증합니다(매니페스트·아이콘 응답, 서비스 워커 활성/제어,
+  크롬 설치 가능성 CDP, 오프라인 재실행, 기존 기능, 콘솔 오류, 개인정보 0건).
+  ```bash
+  python3 tools/verify_pwa.py                                                   # 로컬(프리픽스 서버)
+  KPM_BASE=https://wjoehasa-eng.github.io/korea-photo-map/ python3 tools/verify_pwa.py   # 배포 URL
+  ```
