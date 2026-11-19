@@ -1,7 +1,7 @@
 // IndexedDB 저장소 · 사진 압축 · 백업
 const DB_NAME = "korea-photo-map";
-const DB_VERSION = 1;
-const STORES = { trips: "trips", photos: "photos" };
+const DB_VERSION = 2;
+const STORES = { trips: "trips", photos: "photos", regions: "regions" };
 
 let dbPromise = null;
 
@@ -25,6 +25,9 @@ export function openDB() {
       if (!db.objectStoreNames.contains(STORES.photos)) {
         const s = db.createObjectStore(STORES.photos, { keyPath: "id" });
         s.createIndex("tripId", "tripId");
+      }
+      if (!db.objectStoreNames.contains(STORES.regions)) {
+        db.createObjectStore(STORES.regions, { keyPath: "regionCode" });
       }
     };
     r.onsuccess = () => resolve(r.result);
@@ -132,6 +135,80 @@ export async function thumbBlob(photoId) {
   const s = await store(STORES.photos);
   const p = await req(s.get(photoId));
   return p?.thumb || p?.blob || null;
+}
+
+export async function getTripRecord(tripId) {
+  if (!tripId) return null;
+  const s = await store(STORES.trips);
+  return (await req(s.get(tripId))) || null;
+}
+
+export async function getPhotoRecord(photoId) {
+  if (!photoId) return null;
+  const s = await store(STORES.photos);
+  return (await req(s.get(photoId))) || null;
+}
+
+// 드라이브에서 받아 온 사진을 기기 캐시에 넣는다.
+export async function setPhotoBlob(photoId, blob, kind = "full") {
+  if (!photoId || !blob) return null;
+  const s = await store(STORES.photos);
+  const p = await req(s.get(photoId));
+  if (!p) return null;
+  const next = kind === "thumb" ? { ...p, thumb: blob } : { ...p, blob };
+  await txDone(STORES.photos, "readwrite", (st) => st.put(next));
+  return next;
+}
+
+// 사진 레코드에 드라이브 파일 ID를 붙인다(올린 뒤 · 목록 동기화 때).
+export async function setPhotoDrive(photoId, driveFileId, extra = {}) {
+  if (!photoId || !driveFileId) return null;
+  const s = await store(STORES.photos);
+  const p = await req(s.get(photoId));
+  if (!p) return null;
+  const next = { ...p, ...extra, driveFileId };
+  await txDone(STORES.photos, "readwrite", (st) => st.put(next));
+  return next;
+}
+
+// 동기화로 만든 원격 기록을 그대로 저장한다(없으면 추가, 있으면 갱신).
+export async function putTripRecord(trip) {
+  if (!trip?.id) return null;
+  await txDone(STORES.trips, "readwrite", (s) => s.put(trip));
+  return trip;
+}
+
+export async function putPhotoRecord(photo) {
+  if (!photo?.id) return null;
+  await txDone(STORES.photos, "readwrite", (s) => s.put(photo));
+  return photo;
+}
+
+// ── 지역 메타(지도의 대표 사진) ───────────────────────
+// 일기(여행 기록)의 대표 사진과 별개로, 지도에 칠할 대표 사진을 지역마다 하나 둔다.
+export async function listRegionCovers() {
+  const s = await store(STORES.regions);
+  return await req(s.getAll());
+}
+
+export async function getRegionCover(code) {
+  if (!code) return null;
+  const s = await store(STORES.regions);
+  const r = await req(s.get(code));
+  return r?.coverPhotoId || null;
+}
+
+export async function setRegionCoverRecord(code, photoId, { regionName = "" } = {}) {
+  if (!code) return null;
+  const rec = { regionCode: code, regionName, coverPhotoId: photoId || "", updatedAt: Date.now() };
+  await txDone(STORES.regions, "readwrite", (s) => s.put(rec));
+  return rec;
+}
+
+export async function putRegionRecord(rec) {
+  if (!rec?.regionCode) return null;
+  await txDone(STORES.regions, "readwrite", (s) => s.put(rec));
+  return rec;
 }
 
 // ── 쓰기 ────────────────────────────────────────────────────

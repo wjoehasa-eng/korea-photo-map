@@ -20,3 +20,8 @@
   python3 tools/verify_pwa.py                                                   # 로컬(프리픽스 서버)
   KPM_BASE=https://wjoehasa-eng.github.io/korea-photo-map/ python3 tools/verify_pwa.py   # 배포 URL
   ```
+- `verify_cloud.py` — 구글 드라이브 연동을 가짜 Apps Script 서버로 검증합니다
+  (연결 테스트·업로드·다른 기기 내려받기·일기/지도 대표 사진 분리·삭제·모바일 시트 제스처·뒤로가기·콘솔 오류).
+  ```bash
+  python3 tools/verify_cloud.py
+  ```

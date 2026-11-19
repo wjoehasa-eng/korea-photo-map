@@ -2,8 +2,10 @@ import { createMap } from "./map.js";
 import {
   openDB, listTrips, listPhotos, tripsForRegion, createTrip, addPhotosToTrip,
   updateTrip, deleteTrip, deletePhoto, clearSamples, processImage,
-  exportBackup, importBackup, photoBlob, thumbBlob,
+  exportBackup, importBackup, photoBlob, thumbBlob, setPhotoBlob,
+  listRegionCovers, setRegionCoverRecord,
 } from "./store.js";
+import * as cloud from "./cloud.js";
 import { SAMPLE_SPOTS, renderSamplePhoto, sampleDate } from "./sample.js";
 
 const $ = (id) => document.getElementById(id);
@@ -18,10 +20,12 @@ const state = {
   selected: null,
   activeSido: null,
   urls: new Map(),        // photoId -> {full, thumb}
+  regionCovers: new Map(), // regionCode -> {coverPhotoId, regionName}  (지도 대표 사진)
   pendingFiles: [],       // {file, url}
   editTrip: null,
   lightbox: { list: [], index: 0, trip: null },
   busy: false,
+  syncing: false,
 };
 
 // ── 작은 유틸 ────────────────────────────────────────────────
@@ -67,17 +71,122 @@ function confirmAction(message, { ok = "확인", cancel = "취소" } = {}) {
   });
 }
 
-async function photoURL(photoId, kind = "full") {
+// ── 열린 창(시트·모달·라이트박스)과 뒤로가기 ──────────────
+// 안드로이드 PWA에서 뒤로가기를 누르면 앱이 꺼지지 않고 열린 창부터 닫힌다.
+const layers = [];
+let suppressPop = false;
+
+const LAYER_CLOSERS = {
+  sheet: () => closePanel(),
+  trip: () => closeTripModal(),
+  lightbox: () => closeLightbox(),
+  cloud: () => closeCloudModal(),
+  about: () => closeAbout(),
+};
+
+function layerOpen(name) {
+  if (!name || layers.includes(name)) return;
+  layers.push(name);
+  try {
+    history.pushState({ kpmLayer: layers.length }, "");
+  } catch (e) {
+    /* history를 못 쓰는 환경이면 그냥 넘어간다 */
+  }
+}
+
+function layerClose(name) {
+  const i = layers.indexOf(name);
+  if (i < 0) return;
+  layers.splice(i, 1);
+  if (!suppressPop && history.state && history.state.kpmLayer) {
+    suppressPop = true;
+    try {
+      history.back();
+    } catch (e) {
+      suppressPop = false;
+    }
+  }
+}
+
+window.addEventListener("popstate", () => {
+  if (suppressPop) {
+    suppressPop = false;
+    return;
+  }
+  const top = layers[layers.length - 1];
+  if (!top) return; // 열린 창이 없으면 앱을 닫는 기본 동작
+  layers.pop();
+  const close = LAYER_CLOSERS[top];
+  if (close) close();
+});
+
+function openAbout() {
+  $("aboutOverlay").hidden = false;
+  layerOpen("about");
+}
+
+function closeAbout() {
+  $("aboutOverlay").hidden = true;
+  layerClose("about");
+}
+
+async function photoURL(photoId, kind = "full", { wait = false } = {}) {
   if (!photoId) return null;
-  let e = state.urls.get(photoId);
-  if (e && e[kind]) return e[kind];
-  const blob = kind === "full" ? await photoBlob(photoId) : await thumbBlob(photoId);
+  const cached = state.urls.get(photoId);
+  if (cached && cached[kind]) return cached[kind];
+
+  let blob = kind === "full" ? await photoBlob(photoId) : await thumbBlob(photoId);
+  const rec = state.photos.get(photoId);
+
+  if (!blob && rec && rec.driveFileId && cloud.enabled()) {
+    if (kind === "thumb") {
+      try {
+        blob = await cloud.downloadPhotoBlob(rec, "thumb");
+        if (blob) await setPhotoBlob(photoId, blob, "thumb");
+      } catch (e) {
+        console.warn("드라이브 사진을 받지 못했어요", e);
+      }
+    } else if (!wait) {
+      // 원본은 뒤에서 받아 두고, 화면에는 썸네일을 먼저 보여 준다.
+      const thumb = await photoURL(photoId, "thumb");
+      fetchFullPhoto(photoId, rec);
+      return thumb;
+    } else {
+      try {
+        blob = await cloud.downloadPhotoBlob(rec, "full");
+        if (blob) await setPhotoBlob(photoId, blob, "full");
+      } catch (e) {
+        console.warn("드라이브 사진을 받지 못했어요", e);
+      }
+    }
+  }
+
   if (!blob) return null;
   const url = URL.createObjectURL(blob);
-  e = e || {};
-  e[kind] = url;
-  state.urls.set(photoId, e);
+  const entry = state.urls.get(photoId) || {};
+  entry[kind] = url;
+  state.urls.set(photoId, entry);
   return url;
+}
+
+// 지도·패널은 썸네일로 먼저 그려 두고, 원본이 도착하면 조용히 갈아 끼운다.
+const pendingFull = new Set();
+function fetchFullPhoto(photoId, rec) {
+  if (pendingFull.has(photoId)) return;
+  pendingFull.add(photoId);
+  cloud
+    .downloadPhotoBlob(rec, "full")
+    .then(async (blob) => {
+      if (!blob) return;
+      await setPhotoBlob(photoId, blob, "full");
+      const code = rec.regionCode;
+      if (code && coverPhotoFor(code) === photoId) {
+        const url = await photoURL(photoId, "full");
+        if (url) state.map.setPhoto(code, url);
+      }
+    })
+    .catch(() => {})
+    .finally(() => pendingFull.delete(photoId));
 }
 
 function forgetURLs(photoId) {
@@ -102,9 +211,11 @@ async function init() {
 
   renderChips();
   bindUI();
+  cloud.setRegionNameResolver((code) => state.map.regionByCode.get(code)?.name || "");
   await refreshAll({ animateMap: false });
   $("mapHint").classList.toggle("gone", state.visited.size > 0);
   if (!location.hash) setTimeout(() => $("mapHint").classList.add("gone"), 9000);
+  if (cloud.enabled()) setTimeout(() => cloudSyncNow({ quiet: true }), 500);
 }
 
 async function refreshAll({ animateMap = true } = {}) {
@@ -112,11 +223,15 @@ async function refreshAll({ animateMap = true } = {}) {
   const photos = await listPhotos();
   state.photos = new Map(photos.map((p) => [p.id, p]));
 
+  const covers = await listRegionCovers();
+  state.regionCovers = new Map(covers.map((r) => [r.regionCode, r]));
+
   state.byRegion = new Map();
   for (const t of state.trips) {
     if (!state.byRegion.has(t.regionCode)) state.byRegion.set(t.regionCode, []);
     state.byRegion.get(t.regionCode).push(t);
   }
+  await materializeRegionCovers();
 
   const nextVisited = new Set();
   for (const [code, trips] of state.byRegion) {
@@ -147,12 +262,53 @@ async function refreshAll({ animateMap = true } = {}) {
 }
 
 function coverPhotoFor(code) {
+  const rec = state.regionCovers.get(code);
+  if (rec?.coverPhotoId && state.photos.has(rec.coverPhotoId)) return rec.coverPhotoId;
+  return legacyCoverFor(code);
+}
+
+// 지난 버전처럼 '가장 최근 일기의 대표 사진'을 지도 사진으로 쓰는 예전 규칙(초기 데이터·사진 삭제 대비).
+function legacyCoverFor(code) {
   const trips = state.byRegion.get(code) || [];
   for (let i = trips.length - 1; i >= 0; i--) {
     const t = trips[i];
-    if (t.coverPhotoId) return t.coverPhotoId;
+    if (t.coverPhotoId && state.photos.has(t.coverPhotoId)) return t.coverPhotoId;
+    const ids = t.photoIds || [];
+    for (let j = ids.length - 1; j >= 0; j--) {
+      if (state.photos.has(ids[j])) return ids[j];
+    }
   }
   return null;
+}
+
+function regionNameOf(code) {
+  return state.map?.regionByCode.get(code)?.name || "";
+}
+
+// 지도 대표 사진이 아직 없는 지역은 지금 보이던 사진으로 한 번 정해 둔다.
+// 그래야 나중에 새 여행을 남겨도 지도 사진이 최신 사진으로 바뀌지 않는다.
+async function materializeRegionCovers() {
+  for (const [code, trips] of state.byRegion) {
+    const cur = state.regionCovers.get(code);
+    if (cur?.coverPhotoId && state.photos.has(cur.coverPhotoId)) continue;
+    if (trips.every((t) => t.sample)) continue;
+    const pid = legacyCoverFor(code);
+    if (!pid) continue;
+    const rec = await setRegionCoverRecord(code, pid, { regionName: regionNameOf(code) });
+    state.regionCovers.set(code, rec);
+  }
+}
+
+// 사진을 지운 뒤 지도 대표 사진이 사라진 사진을 가리키면 다시 골라 준다.
+async function repairRegionCover(code) {
+  if (!code) return;
+  const cur = state.regionCovers.get(code);
+  if (cur?.coverPhotoId && state.photos.has(cur.coverPhotoId)) return;
+  const pid = legacyCoverFor(code) || "";
+  if ((cur?.coverPhotoId || "") === pid && cur) return;
+  const rec = await setRegionCoverRecord(code, pid, { regionName: regionNameOf(code) });
+  state.regionCovers.set(code, rec);
+  if (cloud.enabled()) cloud.setRegionCoverRemote(code, pid, regionNameOf(code)).catch(() => {});
 }
 
 function updateProgress() {
@@ -220,6 +376,7 @@ function selectSido(sido) {
 async function pickRegion(code) {
   if (!state.map.regionByCode.has(code)) return;
   state.selected = code;
+  state.lastPickAt = Date.now();
   state.map.setSelected(code);
   openPanel();
   await renderPanel();
@@ -231,14 +388,17 @@ function openPanel() {
   document.body.classList.add("panel-open");
   state.map.setSideInset(isDesktop() ? 424 : 0);
   if (state.selected) state.map.focusRegion(state.selected);
+  layerOpen("sheet");
 }
 function closePanel() {
   $("panel").classList.remove("open");
   $("panel").setAttribute("aria-hidden", "true");
   document.body.classList.remove("panel-open");
+  $("panel").style.transform = "";
   state.map.setSideInset(0);
   state.selected = null;
   state.map.setSelected(null);
+  layerClose("sheet");
 }
 
 async function renderPanel() {
@@ -312,6 +472,12 @@ function bindPanel() {
         if (!ok) return;
         for (const pid of trip.photoIds || []) forgetURLs(pid);
         await deleteTrip(trip);
+        if (cloud.enabled() && !trip.sample) {
+          cloud.deleteTripRemote(trip.id).catch((e) => {
+            console.warn("드라이브 기록을 지우지 못했어요", e);
+            cloud.addTombstone("trip", trip.id);
+          });
+        }
         toast("기록을 지웠어요");
         await refreshAll();
         return;
@@ -329,7 +495,7 @@ function bindPanel() {
       if (!trip) return;
       const list = [];
       for (const pid of trip.photoIds || []) {
-        const u = await photoURL(pid, "full");
+        const u = await photoURL(pid, "full", { wait: true });
         if (u) list.push({ pid, u });
       }
       openLightbox(list, Math.max(0, list.findIndex((x) => x.pid === photoBtn.dataset.photo)), trip);
@@ -343,7 +509,7 @@ function bindPanel() {
       if (!trip) return;
       const list = [];
       for (const pid of trip.photoIds || []) {
-        const u = await photoURL(pid, "full");
+        const u = await photoURL(pid, "full", { wait: true });
         if (u) list.push({ pid, u });
       }
       openLightbox(list, Math.max(0, list.findIndex((x) => x.pid === trip.coverPhotoId)), trip);
@@ -357,6 +523,7 @@ function openLightbox(list, index, trip) {
   state.lightbox = { list, index, trip };
   renderLightbox();
   $("lightbox").hidden = false;
+  layerOpen("lightbox");
 }
 function renderLightbox() {
   const { list, index, trip } = state.lightbox;
@@ -370,81 +537,94 @@ function renderLightbox() {
   $("lbPrev").style.visibility = list.length > 1 ? "visible" : "hidden";
   $("lbNext").style.visibility = list.length > 1 ? "visible" : "hidden";
 
-  let coverBtn = $("lbCover");
-  if (!coverBtn) {
-    const bar = ensureLbActions();
-    coverBtn = document.createElement("button");
-    coverBtn.id = "lbCover";
-    coverBtn.className = "btn soft";
-    coverBtn.type = "button";
-    bar.append(coverBtn);
-    coverBtn.addEventListener("click", async () => {
-      const { trip: t, list: l, index: i } = state.lightbox;
-      if (!t) return;
-      const updated = { ...t, coverPhotoId: l[i].pid };
-      await updateTrip(updated);
-      toast("대표 사진을 바꿨어요 ✨");
-      for (const pid of t.photoIds || []) forgetURLs(pid);
-      await refreshAll();
-      renderLightbox();
-    });
-  }
-  const isCover = trip && trip.coverPhotoId === cur.pid;
-  coverBtn.textContent = isCover ? "✓ 대표 사진이에요" : "⭐ 대표 사진으로";
-  coverBtn.disabled = !trip || isCover;
+  // 두 대표 사진을 따로 보여 준다: 지도에 칠하는 사진 / 이 일기의 사진
+  const isTripCover = !!trip && trip.coverPhotoId === cur.pid;
+  const isMapCover = !!trip && state.regionCovers.get(trip.regionCode)?.coverPhotoId === cur.pid;
 
-  let delBtn = $("lbDelete");
-  if (!delBtn) {
-    const bar = ensureLbActions();
-    delBtn = document.createElement("button");
-    delBtn.id = "lbDelete";
-    delBtn.className = "btn ghost";
-    delBtn.type = "button";
-    delBtn.textContent = "🗑 이 사진 지우기";
-    bar.append(delBtn);
-    delBtn.addEventListener("click", async () => {
-      const { trip: t, list: l, index: i } = state.lightbox;
-      if (!t) return;
-      const ok = await confirmAction("이 사진을 지울까요?", { ok: "지우기" });
-      if (!ok) return;
-      const pid = l[i].pid;
-      const ids = (t.photoIds || []).filter((x) => x !== pid);
-      await deletePhoto(pid);
-      forgetURLs(pid);
-      const updated = {
-        ...t,
-        photoIds: ids,
-        coverPhotoId: t.coverPhotoId === pid ? ids[0] || null : t.coverPhotoId,
-      };
-      await updateTrip(updated);
-      await refreshAll();
-      if (!ids.length) return closeLightbox();
-      const list = [];
-      for (const id of ids) {
-        const u = await photoURL(id, "full");
-        if (u) list.push({ pid: id, u });
-      }
-      state.lightbox = { list, index: Math.min(i, list.length - 1), trip: updated };
-      renderLightbox();
-      toast("사진을 지웠어요");
+  const mapBtn = $("lbMapCover");
+  mapBtn.textContent = isMapCover ? "✓ 지도 대표" : "🗺️ 지도 대표";
+  mapBtn.title = isMapCover ? "이 사진이 지도에 칠해져 있어요" : "지도에 칠할 대표 사진으로 정하기";
+  mapBtn.disabled = !trip || isMapCover;
+
+  const tripBtn = $("lbCover");
+  tripBtn.textContent = isTripCover ? "✓ 일기 대표" : "📖 일기 대표";
+  tripBtn.title = isTripCover ? "이 일기의 대표 사진이에요" : "이 일기의 대표 사진으로 정하기";
+  tripBtn.disabled = !trip || isTripCover;
+
+  $("lbMapCover").hidden = !trip;
+  $("lbCover").hidden = !trip;
+  $("lbDelete").hidden = !trip;
+}
+
+// 일기(여행 기록)의 대표 사진 바꾸기
+async function setTripCoverFromLightbox() {
+  const { trip: t, list: l, index: i } = state.lightbox;
+  if (!t) return;
+  const updated = { ...t, coverPhotoId: l[i].pid };
+  await updateTrip(updated);
+  state.lightbox = { ...state.lightbox, trip: updated };
+  if (cloud.enabled()) {
+    cloud.setCoverRemote(updated.id, updated.coverPhotoId).catch((e) => console.warn("일기 대표 사진을 알리지 못했어요", e));
+  }
+  toast("이 일기의 대표 사진을 바꿨어요 📖");
+  await refreshAll();
+  renderLightbox();
+}
+
+// 지역의 지도 대표 사진 바꾸기 (지난 여행 사진을 지도에 고정할 수 있다)
+async function setMapCoverFromLightbox() {
+  const { trip: t, list: l, index: i } = state.lightbox;
+  if (!t) return;
+  const code = t.regionCode;
+  const pid = l[i].pid;
+  const rec = await setRegionCoverRecord(code, pid, { regionName: regionNameOf(code) });
+  state.regionCovers.set(code, rec);
+  if (cloud.enabled()) {
+    cloud.setRegionCoverRemote(code, pid, regionNameOf(code)).catch((e) => console.warn("지도 대표 사진을 알리지 못했어요", e));
+  }
+  toast("이 사진을 지도 대표 사진으로 정했어요 🗺️");
+  await refreshAll();
+  renderLightbox();
+}
+
+async function deletePhotoFromLightbox() {
+  const { trip: t, list: l, index: i } = state.lightbox;
+  if (!t) return;
+  const ok = await confirmAction("이 사진을 지울까요?", { ok: "지우기" });
+  if (!ok) return;
+  const pid = l[i].pid;
+  const ids = (t.photoIds || []).filter((x) => x !== pid);
+  await deletePhoto(pid);
+  forgetURLs(pid);
+  if (cloud.enabled()) {
+    cloud.deletePhotoRemote(pid).catch((e) => {
+      console.warn("드라이브 사진을 지우지 못했어요", e);
+      cloud.addTombstone("photo", pid);
     });
   }
-  delBtn.hidden = !trip;
-}
-function ensureLbActions() {
-  let bar = $("lbActions");
-  if (!bar) {
-    bar = document.createElement("div");
-    bar.id = "lbActions";
-    bar.className = "lb-actions";
-    $("lightbox").append(bar);
+  const updated = {
+    ...t,
+    photoIds: ids,
+    coverPhotoId: t.coverPhotoId === pid ? ids[0] || null : t.coverPhotoId,
+  };
+  await updateTrip(updated);
+  await refreshAll();
+  await repairRegionCover(t.regionCode);
+  if (!ids.length) return closeLightbox();
+  const list = [];
+  for (const id of ids) {
+    const u = await photoURL(id, "full", { wait: true });
+    if (u) list.push({ pid: id, u });
   }
-  return bar;
+  state.lightbox = { list, index: Math.min(i, list.length - 1), trip: updated };
+  renderLightbox();
+  toast("사진을 지웠어요");
 }
 
 function closeLightbox() {
   $("lightbox").hidden = true;
   $("lbImg").src = "";
+  layerClose("lightbox");
 }
 function stepLightbox(dir) {
   const { list, index } = state.lightbox;
@@ -474,6 +654,7 @@ function openTripModal(code, { existing = null } = {}) {
   $("tripMemoField").style.display = existing ? "none" : "";
   renderPreviews();
   $("tripOverlay").hidden = false;
+  layerOpen("trip");
   setTimeout(() => (existing ? $("dropzone") : $("tripTitle")).focus?.(), 60);
 }
 
@@ -528,16 +709,19 @@ async function saveTrip() {
       }
     }
 
+    let tripId = null;
     if (existing) {
-      await addPhotosToTrip(existing, processed);
+      const updated = await addPhotosToTrip(existing, processed);
+      tripId = updated.id;
       toast("사진을 더했어요 📷");
     } else {
-      await createTrip({
+      const created = await createTrip({
         regionCode: code, date,
         title: $("tripTitle").value.trim(),
         memo: $("tripMemo").value.trim(),
         photos: processed, coverIndex: 0,
       });
+      tripId = created.id;
       toast("여행 기록을 남겼어요 ✨");
     }
     closeTripModal();
@@ -545,6 +729,7 @@ async function saveTrip() {
     state.map.setSelected(code);
     openPanel();
     await refreshAll();
+    if (tripId) pushTripQuiet(tripId);
   } finally {
     state.busy = false;
     saveBtn.disabled = false;
@@ -557,6 +742,7 @@ function closeTripModal() {
   resetPending();
   $("tripForm").reset?.();
   state.editTrip = null;
+  layerClose("trip");
 }
 
 // ── 검색 ────────────────────────────────────────────────────
@@ -681,6 +867,237 @@ async function doImport(file) {
   } catch (e) {
     console.error(e);
     toast("백업 파일을 읽지 못했어요");
+  }
+}
+
+// ── 구글 드라이브 연동 ────────────────────────────────────
+function setCloudStatus(msg, kind) {
+  const box = $("cloudStatus");
+  if (!msg) {
+    box.hidden = true;
+    box.textContent = "";
+    box.className = "cloud-status";
+    return;
+  }
+  box.hidden = false;
+  box.className = `cloud-status${kind ? " " + kind : ""}`;
+  box.textContent = msg;
+}
+
+function timeText(ms) {
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function openCloudModal() {
+  $("cloudUrl").value = cloud.getUrl();
+  setCloudStatus("", null);
+  const last = cloud.lastSync();
+  if (last && last.at) {
+    setCloudStatus(
+      `마지막 동기화 ${timeText(last.at)} · 올림 기록 ${last.pushedTrips}·사진 ${last.pushedPhotos} / 받음 기록 ${last.pulledTrips}·사진 ${last.pulledPhotos}`,
+      "ok"
+    );
+  }
+  $("cloudOverlay").hidden = false;
+  layerOpen("cloud");
+  setTimeout(() => $("cloudUrl").focus(), 60);
+}
+
+function closeCloudModal() {
+  $("cloudOverlay").hidden = true;
+  layerClose("cloud");
+}
+
+function applyCloudUrl() {
+  const v = $("cloudUrl").value.trim();
+  if (!v) {
+    cloud.setUrl("");
+    return "";
+  }
+  if (!/^https?:\/\//i.test(v)) {
+    setCloudStatus("https://script.google.com/macros/s/…/exec 주소를 붙여넣어 주세요", "err");
+    return null;
+  }
+  cloud.setUrl(v);
+  return v;
+}
+
+async function cloudTest() {
+  const url = applyCloudUrl();
+  if (!url) return;
+  const btn = $("cloudTest");
+  btn.disabled = true;
+  setCloudStatus("연결을 확인하는 중…", null);
+  try {
+    const p = await cloud.ping();
+    const lines = [
+      "연결됐어요 ☁️",
+      `‘${p.title || "여행 사진 지도 데이터"}’ · 기록 ${p.trips || 0}개 · 사진 ${p.photos || 0}장`,
+    ];
+    if (!p.photoFolder) lines.push("⚠️ 사진 폴더를 찾지 못했어요 · Code.gs의 PHOTO_FOLDER_ID를 확인해 주세요");
+    setCloudStatus(lines.join("\n"), "ok");
+    return p;
+  } catch (e) {
+    setCloudStatus(e.message || "연결하지 못했어요", "err");
+    return null;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function cloudSyncNow({ quiet = false } = {}) {
+  const url = quiet ? cloud.getUrl() : applyCloudUrl();
+  if (!url) {
+    if (!quiet) setCloudStatus("주소를 먼저 붙여넣고 저장해 주세요", null);
+    return null;
+  }
+  if (state.syncing) {
+    if (!quiet) setCloudStatus("이미 동기화 중이에요…", null);
+    return null;
+  }
+
+  state.syncing = true;
+  const syncBtn = $("cloudSync");
+  syncBtn.disabled = true;
+  const status = (m) => { if (!quiet) setCloudStatus(m, null); };
+  try {
+    const r = await cloud.syncAll({ onStatus: status });
+    const changed = r.pushedTrips + r.pushedPhotos + r.pulledTrips + r.pulledPhotos;
+    if (changed) {
+      for (const id of [...state.urls.keys()]) forgetURLs(id);
+      await refreshAll();
+    }
+    if (!quiet) {
+      setCloudStatus(
+        changed
+          ? `동기화했어요 ☁️\n올림 기록 ${r.pushedTrips} · 사진 ${r.pushedPhotos} / 받음 기록 ${r.pulledTrips} · 사진 ${r.pulledPhotos}`
+          : "이미 드라이브와 같은 상태예요 ✓",
+        "ok"
+      );
+    } else if (r.pulledTrips + r.pulledPhotos > 0) {
+      toast(`드라이브에서 ${r.pulledTrips}개 기록 · 사진 ${r.pulledPhotos}장을 받았어요 ☁️`, 3200);
+    }
+    return r;
+  } catch (e) {
+    console.warn("드라이브 동기화 실패", e);
+    if (!quiet) setCloudStatus(e.message || "동기화하지 못했어요", "err");
+    else toast("드라이브 동기화에 실패했어요 · ⋯ 메뉴에서 확인해 주세요", 3600);
+    return null;
+  } finally {
+    state.syncing = false;
+    syncBtn.disabled = false;
+  }
+}
+
+async function cloudPushAll() {
+  const url = applyCloudUrl();
+  if (!url) return;
+  const trips = state.trips.filter((t) => !t.sample);
+  const photoCount = trips.reduce((n, t) => n + (t.photoIds?.length || 0), 0);
+  if (!trips.length) {
+    setCloudStatus("올릴 기록이 아직 없어요", null);
+    return;
+  }
+  const ok = await confirmAction(
+    `이 기기의 기록 ${trips.length}개 · 사진 ${photoCount}장을 드라이브로 올릴까요? 처음 한 번은 사진 수만큼 시간이 걸려요.`,
+    { ok: "올리기" }
+  );
+  if (!ok) return;
+  const btn = $("cloudPushAll");
+  btn.disabled = true;
+  try {
+    const r = await cloudSyncNow();
+    if (r) toast("이 기기의 기록을 드라이브에 올렸어요 ☁️", 3000);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// 기록·사진을 바꾼 직후 조용히 드라이브에 밀어 넣는다(실패해도 앱은 계속).
+async function pushTripQuiet(tripId) {
+  if (!cloud.enabled()) return;
+  try {
+    const r = await cloud.pushTrip(tripId);
+    if (r && r.uploaded) toast(`드라이브에도 사진 ${r.uploaded}장을 올렸어요 ☁️`, 3000);
+  } catch (e) {
+    console.warn("드라이브에 올리지 못했어요", e);
+    toast("드라이브 저장은 다음 동기화 때 다시 시도할게요", 3200);
+  }
+}
+
+function bindCloud() {
+  $("cloudClose").addEventListener("click", closeCloudModal);
+  $("cloudOverlay").addEventListener("click", (e) => {
+    if (e.target === $("cloudOverlay")) closeCloudModal();
+  });
+  $("cloudTest").addEventListener("click", cloudTest);
+  $("cloudSaveBtn").addEventListener("click", () => {
+    const url = applyCloudUrl();
+    if (url === null) return;
+    if (url) {
+      setCloudStatus("주소를 저장했어요 ✓ 이 기기 브라우저에만 들어 있어요", "ok");
+      toast("드라이브 주소를 저장했어요 ☁️");
+    } else {
+      setCloudStatus("주소를 비웠어요 · 이제 이 기기에만 저장돼요", null);
+      toast("드라이브 연동을 꺼어요");
+    }
+  });
+  $("cloudSync").addEventListener("click", () => cloudSyncNow());
+  $("cloudPushAll").addEventListener("click", cloudPushAll);
+}
+
+// ── 모바일 하단 시트: 손잡이·헤더를 아래로 끌어 닫기 ──────
+function isMobileSheet() {
+  return window.matchMedia("(max-width: 900px)").matches;
+}
+
+function bindSheetGesture() {
+  const panel = $("panel");
+  const handle = panel.querySelector(".sheet-handle");
+  const head = panel.querySelector(".panel-head");
+  if (!handle && !head) return;
+
+  let startY = null;
+  let dy = 0;
+  let dragging = false;
+
+  const start = (e) => {
+    if (!isMobileSheet() || !panel.classList.contains("open")) return;
+    if (!e.touches || e.touches.length !== 1) return;
+    startY = e.touches[0].clientY;
+    dy = 0;
+    dragging = true;
+    panel.style.transition = "none";
+  };
+
+  const move = (e) => {
+    if (!dragging || startY === null) return;
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    dy = Math.max(0, y - startY);
+    if (dy > 4) {
+      if (e.cancelable) e.preventDefault();
+      panel.style.transform = `translateY(${dy}px)`;
+    }
+  };
+
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    panel.style.transition = "";
+    panel.style.transform = "";
+    const shouldClose = dy > 90;
+    startY = null;
+    dy = 0;
+    if (shouldClose) closePanel();
+  };
+
+  for (const el of [handle, head].filter(Boolean)) {
+    el.addEventListener("touchstart", start, { passive: true });
+    el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", end);
+    el.addEventListener("touchcancel", end);
   }
 }
 
@@ -809,6 +1226,7 @@ function bindUI() {
     menu.hidden = true;
     $("btnMenu").setAttribute("aria-expanded", "false");
     const act = b.dataset.act;
+    if (act === "cloud") openCloudModal();
     if (act === "export") await doExport();
     if (act === "import") $("importInput").click();
     if (act === "clear-samples") {
@@ -818,7 +1236,7 @@ function bindUI() {
       toast(n ? `예시 ${n}개를 지웠어요` : "지울 예시가 없어요");
     }
     if (act === "install") await doInstall();
-    if (act === "about") $("aboutOverlay").hidden = false;
+    if (act === "about") openAbout();
   });
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".menu-wrap")) {
@@ -881,21 +1299,25 @@ function bindUI() {
   $("lbClose").addEventListener("click", closeLightbox);
   $("lbPrev").addEventListener("click", () => stepLightbox(-1));
   $("lbNext").addEventListener("click", () => stepLightbox(1));
+  $("lbMapCover").addEventListener("click", setMapCoverFromLightbox);
+  $("lbCover").addEventListener("click", setTripCoverFromLightbox);
+  $("lbDelete").addEventListener("click", deletePhotoFromLightbox);
   $("lightbox").addEventListener("click", (e) => {
     if (e.target === $("lightbox") || e.target.classList.contains("lb-figure")) closeLightbox();
   });
 
   // 정보
-  $("aboutClose").addEventListener("click", () => ($("aboutOverlay").hidden = true));
+  $("aboutClose").addEventListener("click", () => closeAbout());
   $("aboutOverlay").addEventListener("click", (e) => {
-    if (e.target === $("aboutOverlay")) $("aboutOverlay").hidden = true;
+    if (e.target === $("aboutOverlay")) closeAbout();
   });
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       if (!$("lightbox").hidden) closeLightbox();
       else if (!$("tripOverlay").hidden) closeTripModal();
-      else if (!$("aboutOverlay").hidden) $("aboutOverlay").hidden = true;
+      else if (!$("cloudOverlay").hidden) closeCloudModal();
+      else if (!$("aboutOverlay").hidden) closeAbout();
       else if (state.selected) closePanel();
     }
     if (!$("lightbox").hidden) {
@@ -906,6 +1328,18 @@ function bindUI() {
 
   bindInstall();
   bindPanel();
+  bindCloud();
+  bindSheetGesture();
+
+  // 모바일에서 시트 바깥(지도·여백)을 누르면 하단 시트를 닫는다.
+  // (지역을 골라 새로 연 직후에는 닫지 않는다 — 지도는 좌표로 지역을 찾기 때문에 target이 svg다)
+  document.addEventListener("click", (e) => {
+    if (!state.selected || !isMobileSheet()) return;
+    if (Date.now() - (state.lastPickAt || 0) < 400) return;
+    if (e.target.closest("#panel, .overlay, .lightbox, .menu-wrap, .topbar, .toolbar, .search-wrap")) return;
+    if (e.target.closest("path.region")) return;
+    closePanel();
+  });
 }
 
 init().catch((e) => {

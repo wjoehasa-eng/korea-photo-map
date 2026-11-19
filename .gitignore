@@ -5,3 +5,4 @@ tools/last-verify.log
 tools/last*.log
 __pycache__/
 *.pyc
+.tmp/

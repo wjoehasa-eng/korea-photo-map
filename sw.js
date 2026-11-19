@@ -2,7 +2,7 @@
  * 안드로이드 크롬 WebAPK 설치 조건(오프라인에서도 앱 셸 응답)을 채우고,
  * 지하철·산속처럼 신호가 약한 곳에서도 앱이 바로 열리게 한다.
  */
-const VERSION = "kpm-v1";
+const VERSION = "kpm-v2";
 const CACHE = `kpm-shell-${VERSION}`;
 
 const SHELL = [
@@ -12,6 +12,7 @@ const SHELL = [
   "./js/app.js",
   "./js/map.js",
   "./js/store.js",
+  "./js/cloud.js",
   "./js/sample.js",
   "./data/regions.json",
   "./manifest.webmanifest",

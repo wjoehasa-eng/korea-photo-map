@@ -11,6 +11,7 @@ import http.server
 import io
 import json
 import os
+import re
 import socketserver
 import sys
 import threading
@@ -23,7 +24,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PORT = 8812
 PREFIX = "/korea-photo-map/"
 results = []
-PERSONAL_PATTERNS = ["안경모", "경모 님", "희윤", "희겸", "wjoehasa@", "010-9838", "9838-9487", "anxmo@"]
+PERSONAL_PATTERNS = [
+    # 개인 식별 문자열은 공개 저장소에 두지 않는다. 필요하면 환경변수로 넘긴다.
+    #   KPM_PERSONAL_PATTERNS='이름,아이디,전화끝자리' python3 tools/verify_pwa.py
+    p.strip()
+    for p in os.environ.get("KPM_PERSONAL_PATTERNS", "").split(",")
+    if p.strip()
+]
+# 누구에게나 해당되는 '모양' 검사(휴대전화 번호·개인 메일 주소)
+PERSONAL_REGEXES = [
+    re.compile(r"01[016789][-\s]?\d{3,4}[-\s]?\d{4}"),
+    re.compile(r"[\w.+-]+@(gmail|naver|daum|kakao|hanmail)\.(com|net)"),
+]
 
 
 def check(name, ok, detail=""):
@@ -290,6 +302,10 @@ def main():
             for pat in PERSONAL_PATTERNS:
                 if pat in text:
                     hits.append(f"{os.path.relpath(path, ROOT)}: {pat}")
+            for rx in PERSONAL_REGEXES:
+                m = rx.search(text)
+                if m:
+                    hits.append(f"{os.path.relpath(path, ROOT)}: {m.group(0)[:12]}…")
     check("개인정보 문자열 0건", not hits, hits[:5])
 
     print("\n콘솔 오류:", console_errors if console_errors else "0건")
