@@ -52,8 +52,9 @@ def start_server():
 def main():
     os.makedirs(SHOTS, exist_ok=True)
     imgs = make_images()
-    srv = start_server()
-    url = f"http://127.0.0.1:{PORT}/"
+    base = os.environ.get("KPM_BASE")  # 배포된 사이트를 검증할 때
+    srv = None if base else start_server()
+    url = base or f"http://127.0.0.1:{PORT}/"
     console_errors = []
 
     with sync_playwright() as p:
@@ -327,7 +328,8 @@ def main():
 
         browser.close()
 
-    srv.shutdown()
+    if srv:
+        srv.shutdown()
     print("\n콘솔 오류:", console_errors if console_errors else "0건")
     check("JS 콘솔 오류 0건", len(console_errors) == 0, console_errors[:3])
 

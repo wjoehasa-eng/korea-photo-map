@@ -1,0 +1,50 @@
+/workspace/work/korea-photo-map/tools/verify.py:144: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+  px = list(Image.open(crop).convert("RGB").getdata())
+PASS 지도에 시·군·구 250개 렌더 · 250
+PASS 지도 SVG 크기
+PASS 제주 2개 지역 포함 · {'jeju': 2, 'ulleung': True, 'west': True}
+PASS 울릉군 포함 · {'jeju': 2, 'ulleung': True, 'west': True}
+PASS 지역 클릭 시 패널 열림
+PASS 패널 제목 = 고창군 · 고창군
+미방문
+PASS 지역 선택 시 확대 이동 · translate(-1278.18 -2376.52) scale(5.2000)
+PASS 미방문 배지 표시
+PASS 사진 미리보기 2장 · 2
+PASS 저장 후 여행 카드 표시 · 1
+PASS 진행률 방문 수 1 · 1
+PASS 행정구역 폴리곤이 사진 패턴으로 채워짐 · url("#pat-35370")
+PASS 패턴 이미지가 blob URL · blob:https://wjoehasa-eng.gith
+PASS preserveAspectRatio=xMidYMid slice · xMidYMid slice
+PASS 계산된 fill이 사진 패턴 · url("#pat-35370")
+PASS 폴리곤이 실제 사진 픽셀로 채워짐(주황) · (207, 154, 109)
+PASS 사진 클릭 시 라이트박스
+PASS 라이트박스 캡션 · 고창군 · 2025. 5. 4. · 고창 봄소풍 (1/2)
+PASS 사진 한 장 삭제 · 1
+PASS 남은 사진 수 반영 · 고창군
+📸 1장
+PASS 확대 버튼 동작 · translate(-1278.18 -2376.52) scale(5.2000) -> translate(-2171.27 -3802.88) scale(7.8000)
+PASS 휠 줌 동작
+PASS 드래그 팬 동작
+PASS 초기화 버튼 · translate(0.00 0.00) scale(1.0000)
+PASS 검색 결과 표시 · 강남구
+서울
+PASS 검색 결과 클릭 시 패널 이동 · 강남구
+미방문
+PASS 시·도 칩 필터(다른 지역 흐리게) · 208
+PASS 백업 JSON 내려받기 · 35655B, trips=1
+PASS 예시 채우기 동작 · 20
+PASS 여러 지역 사진 패턴 생성 · 20
+PASS 새로고침 후 데이터 유지(IndexedDB) · 20
+PASS 예시 지우기 후 1개만 남음 · 1
+PASS 백업 불러오기 동작
+PASS 불러온 기록 표시
+PASS 모바일 지도 렌더
+PASS 모바일 가로 스크롤 없음
+PASS 모바일 줌 버튼
+PASS 모바일 하단 시트 · {'top': 224, 'h': 620, 'bottom': 844, 'w': 390}
+PASS 모바일에서 사진 등록 · 1
+
+콘솔 오류: 0건
+PASS JS 콘솔 오류 0건
+
+총 40개 검사 · 통과 40 · 실패 0
