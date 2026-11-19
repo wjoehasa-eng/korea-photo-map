@@ -227,7 +227,7 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     icons = {
         "icon-512.png": make_icon(rounded=True),
-        "icon-maskable-512.png": make_icon(rounded=False, scale=0.82),
+        "icon-maskable-512.png": make_icon(rounded=False, scale=0.86),
     }
     icons["icon-192.png"] = icons["icon-512.png"].resize((192, 192), Image.LANCZOS)
     for name, im in icons.items():
