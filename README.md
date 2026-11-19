@@ -18,20 +18,35 @@
 - **진행률**: 상단 `✈️ N / 250 정복 (XX%)`
 - **저장·백업**: 사진 자동 리사이징(장변 1500px, 썸네일 520px) 후 IndexedDB 저장, JSON 백업 내보내기/불러오기
 - **예시 채우기**: 실제 사진 없이 캔버스로 그린 일러스트로 20곳을 채워 미리보기(언제든 삭제 가능)
+- **설치(PWA)**: 안드로이드 크롬에서 `앱 설치` / `홈 화면에 추가`로 설치하면 주소창 없이 앱처럼 열리고,
+  서비스 워커가 앱 셸을 미리 담아 두어 **신호가 없어도** 지도와 저장된 사진이 열립니다
 
 ## 구조
 
 ```
 index.html            화면 마크업
 styles.css            디자인(파스텔 여행 앨범 톤)
-js/app.js             앱 로직(패널·폼·백업·검색·진행률)
+manifest.webmanifest  PWA 매니페스트(이름·아이콘·standalone·테마색)
+sw.js                 서비스 워커(앱 셸 프리캐시 + 오프라인 대응)
+icons/                앱 아이콘 PNG 192 · 512 · maskable 512
+js/app.js             앱 로직(패널·폼·백업·검색·진행률·설치 안내)
 js/map.js             SVG 지도 렌더링·줌/팬·사진 패턴
 js/store.js           IndexedDB 저장소, 사진 압축, 백업
 js/sample.js          예시 일러스트(캔버스 벡터 아트)
 data/regions.json     투영된 SVG path + 라벨 좌표(약 266KB)
 tools/build_map_data.py  행정구역 TopoJSON → regions.json 변환
+tools/make_icons.py   앱 아이콘 PNG 생성(Pillow)
 tools/verify.py       Playwright 검증(데스크톱 1280 · 모바일 390)
+tools/verify_pwa.py   PWA 검증(매니페스트·아이콘·서비스 워커·설치 가능성·오프라인)
 ```
+
+## 설치(안드로이드)
+
+1. 크롬에서 <https://wjoehasa-eng.github.io/korea-photo-map/> 열기
+2. 주소창 오른쪽 `⋮` → **앱 설치**(또는 **홈 화면에 추가**), 앱 안에서는 `⋯` → **📲 앱처럼 설치**
+3. 홈 화면의 🗺️ 아이콘으로 앱처럼 실행 — 주소창 없이 열리고 오프라인에서도 켜집니다
+
+설치가 안 보이면 두 번 이상 방문한 뒤 다시 시도하세요(크롬이 설치 조건을 확인하는 데 잠깐 걸립니다).
 
 ## 데이터 출처
 

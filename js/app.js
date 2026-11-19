@@ -90,6 +90,7 @@ function forgetURLs(photoId) {
 
 // ── 초기 로드 ────────────────────────────────────────────────
 async function init() {
+  registerServiceWorker();
   await openDB();
   const res = await fetch("data/regions.json");
   state.data = await res.json();
@@ -683,6 +684,62 @@ async function doImport(file) {
   }
 }
 
+// ── 설치(홈 화면에 추가) & 서비스 워커 ──────────────────────
+const install = {
+  prompt: null,
+  standalone: () =>
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.matchMedia("(display-mode: minimal-ui)").matches ||
+    navigator.standalone === true,
+};
+
+function syncInstallMenuItem() {
+  const btn = $("menuInstall");
+  if (!btn) return;
+  btn.hidden = !install.prompt || install.standalone();
+}
+
+function bindInstall() {
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    install.prompt = e;
+    syncInstallMenuItem();
+  });
+  window.addEventListener("appinstalled", () => {
+    install.prompt = null;
+    syncInstallMenuItem();
+    toast("홈 화면에 추가했어요 · 이제 앱처럼 열려요 🎉");
+  });
+  syncInstallMenuItem();
+}
+
+async function doInstall() {
+  if (!install.prompt) {
+    toast("브라우저 오른쪽 위 ⋮ 메뉴에서 ‘앱 설치’나 ‘홈 화면에 추가’를 눌러 주세요");
+    return;
+  }
+  const ev = install.prompt;
+  install.prompt = null;
+  syncInstallMenuItem();
+  try {
+    ev.prompt();
+    const { outcome } = await ev.userChoice;
+    if (outcome === "accepted") toast("설치를 시작했어요 · 홈 화면을 확인해 보세요");
+    else toast("설치를 취소했어요 · ⋯ 메뉴에서 다시 할 수 있어요");
+  } catch (e) {
+    console.warn(e);
+    toast("설치 창을 열지 못했어요 · 브라우저 ⋮ 메뉴에서 ‘홈 화면에 추가’를 눌러 주세요");
+  }
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  if (!window.isSecureContext) return; // https·localhost에서만 동작
+  navigator.serviceWorker
+    .register("./sw.js")
+    .catch((e) => console.warn("서비스 워커를 등록하지 못했어요", e));
+}
+
 // ── UI 바인딩 ───────────────────────────────────────────────
 function bindUI() {
   $("zoomIn").addEventListener("click", () => state.map.zoomStep(1.5));
@@ -760,6 +817,7 @@ function bindUI() {
       await refreshAll();
       toast(n ? `예시 ${n}개를 지웠어요` : "지울 예시가 없어요");
     }
+    if (act === "install") await doInstall();
     if (act === "about") $("aboutOverlay").hidden = false;
   });
   document.addEventListener("click", (e) => {
@@ -846,6 +904,7 @@ function bindUI() {
     }
   });
 
+  bindInstall();
   bindPanel();
 }
 

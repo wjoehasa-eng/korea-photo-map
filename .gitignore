@@ -3,3 +3,5 @@ shots/
 tools/last-verify.log
 .DS_Store
 tools/last*.log
+__pycache__/
+*.pyc

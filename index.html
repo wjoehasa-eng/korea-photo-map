@@ -5,8 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>여행 사진 지도 · 대한민국 시·군·구</title>
 <meta name="description" content="대한민국 250개 시·군·구 지도에 여행 사진을 채워 넣는 앱. 사진은 이 기기 브라우저에만 저장됩니다." />
-<meta name="theme-color" content="#dff1f7" />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%97%BA%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+<meta name="theme-color" content="#f38b67" />
+<link rel="manifest" href="./manifest.webmanifest" />
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+<link rel="apple-touch-icon" href="./icons/icon-192.png" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="여행지도" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet" />
@@ -47,6 +53,7 @@
           <button role="menuitem" type="button" data-act="export">💾 백업 내보내기</button>
           <button role="menuitem" type="button" data-act="import">📥 백업 불러오기</button>
           <button role="menuitem" type="button" data-act="clear-samples">🧹 예시 데이터 지우기</button>
+          <button role="menuitem" type="button" data-act="install" id="menuInstall" hidden>📲 앱처럼 설치</button>
           <button role="menuitem" type="button" data-act="about">ℹ️ 이 앱은</button>
         </div>
       </div>
@@ -170,6 +177,7 @@
         <li>사진은 서버로 보내지 않고 <b>이 브라우저</b>에만 저장돼요(IndexedDB).</li>
         <li>기기를 옮길 때는 <b>백업 내보내기</b>로 JSON 파일을 받아 두세요.</li>
         <li>‘예시 채우기’는 그림으로 만든 샘플이며 언제든 지울 수 있어요.</li>
+        <li>⋯ 메뉴의 <b>앱처럼 설치</b>(또는 브라우저의 ‘홈 화면에 추가’)로 설치하면 주소창 없이 앱처럼 열리고, 신호가 없어도 켜져요.</li>
       </ul>
       <p class="credit">행정구역 경계: 통계청(KOSTAT) 2018 · southkorea/southkorea-maps</p>
     </div>
