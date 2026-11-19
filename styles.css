@@ -294,7 +294,8 @@ button { font-family: inherit; color: inherit; }
 .region {
   fill: var(--land);
   stroke: var(--land-line);
-  stroke-width: 1.1;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
   stroke-linejoin: round;
   transition: fill .18s ease, opacity .25s ease, filter .18s ease;
   cursor: pointer;
@@ -305,11 +306,10 @@ button { font-family: inherit; color: inherit; }
 .region.dim { opacity: .28; }
 .region.selected {
   stroke: var(--coral);
-  stroke-width: 2.4;
+  stroke-width: 3;
   filter: drop-shadow(0 0 5px rgba(255,143,124,.55));
 }
-.region:focus { outline: none; }
-.region:focus-visible { outline: none; stroke: var(--coral); stroke-width: 2.4; }
+.region:focus-visible { outline: none; stroke: var(--coral); stroke-width: 3; }
 
 .land-glow { fill: none; stroke: rgba(255,255,255,.75); stroke-width: 5; pointer-events: none; }
 
