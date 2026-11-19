@@ -2,3 +2,4 @@
 shots/
 tools/last-verify.log
 .DS_Store
+tools/last*.log
