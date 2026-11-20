@@ -6,7 +6,7 @@
 import {
   listTrips, listPhotos, putTripRecord, putPhotoRecord, setPhotoDrive, setPhotoBlob,
   listRegionCovers, setRegionCoverRecord, putRegionRecord, getRegionCover,
-} from "./store.js";
+} from "./store.js?v=3";
 
 const URL_KEY = "kpm.cloud.url";
 const TOMB_KEY = "kpm.cloud.tombstones";

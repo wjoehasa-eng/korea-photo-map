@@ -1,12 +1,12 @@
-import { createMap } from "./map.js";
+import { createMap } from "./map.js?v=3";
 import {
   openDB, listTrips, listPhotos, tripsForRegion, createTrip, addPhotosToTrip,
   updateTrip, deleteTrip, deletePhoto, clearSamples, processImage,
   exportBackup, importBackup, photoBlob, thumbBlob, setPhotoBlob,
   listRegionCovers, setRegionCoverRecord,
-} from "./store.js";
-import * as cloud from "./cloud.js";
-import { SAMPLE_SPOTS, renderSamplePhoto, sampleDate } from "./sample.js";
+} from "./store.js?v=3";
+import * as cloud from "./cloud.js?v=3";
+import { SAMPLE_SPOTS, renderSamplePhoto, sampleDate } from "./sample.js?v=3";
 
 const $ = (id) => document.getElementById(id);
 
@@ -1149,11 +1149,49 @@ async function doInstall() {
   }
 }
 
+// 새 버전이 활성화되면 한 번만 새로고침한다. 무한 리로드를 막기 위해 세션에 시각을 남긴다.
+const SW_RELOAD_KEY = "kpm.sw.reloadedAt";
+const SW_RELOAD_GUARD_MS = 10000;
+let swReloading = false;
+
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   if (!window.isSecureContext) return; // https·localhost에서만 동작
+
+  // 처음 설치하는 경우(제어자가 없던 페이지)에는 새 워커가 넘겨받아도 새로고침하지 않는다.
+  const hadController = !!navigator.serviceWorker.controller;
+
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || swReloading) return;
+    let last = 0;
+    try {
+      last = Number(sessionStorage.getItem(SW_RELOAD_KEY) || 0);
+    } catch {
+      /* 저장소를 못 쓰는 모드 */
+    }
+    if (Date.now() - last < SW_RELOAD_GUARD_MS) return;
+    swReloading = true;
+    try {
+      sessionStorage.setItem(SW_RELOAD_KEY, String(Date.now()));
+    } catch {}
+    window.location.reload();
+  });
+
   navigator.serviceWorker
     .register("./sw.js")
+    .then((reg) => {
+      // 앱을 켤 때마다 새 버전이 있는지 확인한다(설치형 앱은 며칠씩 켜져 있기도 하다).
+      reg.update().catch(() => {});
+
+      // 화면으로 돌아올 때도 가끔 확인한다(15분에 한 번).
+      let lastCheck = Date.now();
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState !== "visible") return;
+        if (Date.now() - lastCheck < 15 * 60 * 1000) return;
+        lastCheck = Date.now();
+        reg.update().catch(() => {});
+      });
+    })
     .catch((e) => console.warn("서비스 워커를 등록하지 못했어요", e));
 }
 

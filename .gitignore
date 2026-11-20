@@ -6,3 +6,4 @@ tools/last*.log
 __pycache__/
 *.pyc
 .tmp/
+apps-script-deploy-state.md

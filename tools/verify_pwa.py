@@ -13,6 +13,7 @@ import json
 import os
 import re
 import socketserver
+import subprocess
 import sys
 import threading
 import urllib.parse
@@ -36,6 +37,16 @@ PERSONAL_REGEXES = [
     re.compile(r"01[016789][-\s]?\d{3,4}[-\s]?\d{4}"),
     re.compile(r"[\w.+-]+@(gmail|naver|daum|kakao|hanmail)\.(com|net)"),
 ]
+
+
+def ignored_by_git(path):
+    """공개 저장소에 올라가지 않는 파일인지(.gitignore) 확인한다."""
+    try:
+        r = subprocess.run(["git", "-C", ROOT, "check-ignore", "-q", path],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return r.returncode == 0
+    except Exception:
+        return False
 
 
 def check(name, ok, detail=""):
@@ -295,6 +306,9 @@ def main():
             if fn == "verify_pwa.py":  # 검사 패턴을 담고 있는 검사기 자신은 제외
                 continue
             path = os.path.join(dirpath, fn)
+            # .gitignore로 공개 대상에서 빼 둔 로컬 파일(배포 메모 등)은 검사에서 제외한다.
+            if ignored_by_git(path):
+                continue
             try:
                 text = open(path, encoding="utf-8").read()
             except UnicodeDecodeError:

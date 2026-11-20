@@ -48,6 +48,7 @@ tools/make_icons.py   앱 아이콘 PNG 생성(Pillow)
 tools/verify.py       Playwright 검증(데스크톱 1280 · 모바일 390)
 tools/verify_pwa.py   PWA 검증(매니페스트·아이콘·서비스 워커·설치 가능성·오프라인)
 tools/verify_cloud.py 드라이브 연동 검증(가짜 Apps Script로 업로드·내려받기·대표 사진·모바일 제스처)
+tools/verify_sw_update.py 서비스 워커 업데이트 검증(옛 캐시 kpm-v2 → kpm-v3 교체·새 app.js 반영·오프라인)
 ```
 
 ## 설치(안드로이드)

@@ -25,3 +25,9 @@
   ```bash
   python3 tools/verify_cloud.py
   ```
+- `verify_sw_update.py` — 서비스 워커 업데이트를 검증합니다. 옛 배포본(kpm-v2·‘캐시 먼저’)을
+  띄워 두었다가 새 배포본으로 바꾸고, 옛 캐시가 지워지고 새 app.js가 반영되며 ⋯ →
+  ☁️ 구글 드라이브 연동이 바로 열리는지(주소 입력 → 연결 테스트 포함) 확인합니다.
+  ```bash
+  python3 tools/verify_sw_update.py
+  ```
